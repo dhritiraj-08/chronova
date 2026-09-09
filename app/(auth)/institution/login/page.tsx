@@ -4,18 +4,19 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Building2 } from "lucide-react";
+import { resolveUserRole, roleHomePath } from "@/lib/auth/resolveRole";
+import { Mail, Lock, Eye, EyeOff, ArrowRight, GraduationCap, Users, ClipboardCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
-// This is the STUDENT portal login. It always lands on /dashboard, full
-// stop — it never checks or redirects based on institution_members role.
-// That's deliberate: the same email/account can be a student AND an
-// institution admin/teacher independently, and which door someone walked
-// in through (this page vs /institution/login) is what decides which
-// experience they get this session, not a role lookup. See
-// /institution/login for the institution-side counterpart, which is the
-// only place that ever redirects to /admin or /teacher.
-export default function LoginPage() {
+// This is the INSTITUTION portal login — the only entry point that ever
+// redirects to /admin or /teacher. It never redirects to /dashboard: an
+// account with no institution_members row (a plain student account, even
+// one that's signed in successfully) gets an inline "not an institution
+// account" message here instead of being silently sent anywhere. Compare
+// /login, the student portal, which always lands on /dashboard and never
+// checks institution role at all — the two are deliberately independent so
+// the same email can be both a student and an institution member.
+export default function InstitutionLoginPage() {
   const router = useRouter();
   const supabase = createClient();
 
@@ -24,17 +25,35 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notInstitution, setNotInstitution] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) router.push("/dashboard");
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return;
+      const role = await resolveUserRole(supabase, user);
+      if (role === "admin" || role === "teacher") {
+        router.push(roleHomePath(role));
+      }
+      // role === "student": stay on this page rather than redirecting
+      // anywhere — they're signed in, just not as an institution member.
     });
   }, [router, supabase]);
+
+  async function handleAuthenticatedUser(user: NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"]>) {
+    const role = await resolveUserRole(supabase, user);
+    if (role === "admin" || role === "teacher") {
+      router.push(roleHomePath(role));
+    } else {
+      setNotInstitution(true);
+      setLoading(false);
+    }
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setNotInstitution(false);
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -55,7 +74,7 @@ export default function LoginPage() {
               setError(retry.error?.message || "Sign in failed.");
               setLoading(false);
             } else {
-              router.push("/dashboard");
+              await handleAuthenticatedUser(retry.data.user);
             }
           } else {
             setError(confirmData.error || error.message);
@@ -70,14 +89,14 @@ export default function LoginPage() {
         setLoading(false);
       }
     } else if (data.user) {
-      router.push("/dashboard");
+      await handleAuthenticatedUser(data.user);
     }
   }
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }} className="page-bg animate-fade">
       <div className="page-content" style={{ display: "flex", width: "100%", minHeight: "100vh" }}>
-        
+
         {/* Left panel */}
         <div style={{
           flex: "0 0 420px", display: "flex", flexDirection: "column",
@@ -87,7 +106,7 @@ export default function LoginPage() {
           position: "relative",
           zIndex: 10
         }} className="responsive-auth-left">
-          
+
           {/* Logo */}
           <Link href="/" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", marginBottom: "36px" }}>
             <Logo size={24} />
@@ -95,11 +114,12 @@ export default function LoginPage() {
 
           {/* Heading */}
           <div style={{ marginBottom: "20px" }}>
-            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "20px", fontWeight: 600, letterSpacing: "-0.015em", color: "var(--c-text-primary)" }}>
-              Welcome back
+            <p className="eyebrow">Institution Portal</p>
+            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "20px", fontWeight: 600, letterSpacing: "-0.015em", color: "var(--c-text-primary)", marginTop: "4px" }}>
+              Sign in to manage your institution
             </h1>
-            <p style={{ fontSize: "12.5px", color: "var(--c-text-secondary)", marginTop: "2px" }}>
-              Sign in to your account to continue
+            <p style={{ fontSize: "12.5px", color: "var(--c-text-secondary)", marginTop: "4px" }}>
+              For admins and teachers only
             </p>
           </div>
 
@@ -111,15 +131,24 @@ export default function LoginPage() {
               </div>
             )}
 
+            {notInstitution && (
+              <div className="alert alert-error" style={{ padding: "10px 12px", fontSize: "12px", lineHeight: 1.5 }}>
+                No institution account found for this email. If you're setting up a new institution, you can{" "}
+                <Link href="/signup" style={{ color: "inherit", textDecoration: "underline", fontWeight: 600 }}>
+                  sign up here
+                </Link>. If you're a teacher, ask your admin to invite you first.
+              </div>
+            )}
+
             <div>
-              <label className="form-label" htmlFor="login-email">Email</label>
+              <label className="form-label" htmlFor="inst-login-email">Email</label>
               <div className="input-group">
                 <Mail size={14} className="input-icon" />
                 <input
-                  id="login-email"
+                  id="inst-login-email"
                   type="email"
                   className="input"
-                  placeholder="you@example.com"
+                  placeholder="you@school.edu"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
@@ -130,13 +159,13 @@ export default function LoginPage() {
 
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <label className="form-label" htmlFor="login-password">Password</label>
+                <label className="form-label" htmlFor="inst-login-password">Password</label>
                 <a href="#" style={{ fontSize: "11.5px", color: "var(--c-text-secondary)", textDecoration: "none", fontWeight: 500 }}>Forgot password?</a>
               </div>
               <div className="input-group">
                 <Lock size={14} className="input-icon" />
                 <input
-                  id="login-password"
+                  id="inst-login-password"
                   type={showPw ? "text" : "password"}
                   className="input"
                   placeholder="Enter your password"
@@ -157,7 +186,7 @@ export default function LoginPage() {
             </div>
 
             <button
-              id="login-submit-btn"
+              id="institution-login-submit-btn"
               type="submit"
               disabled={loading || !email || !password}
               className="btn btn-primary"
@@ -168,17 +197,17 @@ export default function LoginPage() {
           </form>
 
           <p style={{ marginTop: "24px", fontSize: "12.5px", color: "var(--c-text-tertiary)", textAlign: "center" }}>
-            Don't have an account?{" "}
+            Setting up a new institution?{" "}
             <Link href="/signup" style={{ color: "var(--c-text-primary)", textDecoration: "none", fontWeight: 500 }}>
               Sign up free
             </Link>
           </p>
 
-          <Link href="/institution/login" style={{
+          <Link href="/login" style={{
             marginTop: "14px", fontSize: "12px", color: "var(--c-text-tertiary)", textDecoration: "none",
             display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
           }}>
-            <Building2 size={12} /> Institution admin or teacher? Sign in here
+            <GraduationCap size={12} /> Student? Sign in here instead
           </Link>
         </div>
 
@@ -188,36 +217,39 @@ export default function LoginPage() {
           justifyContent: "center", alignItems: "center", padding: "48px",
           position: "relative", overflow: "hidden"
         }} className="responsive-auth-right">
-          
+
           <div style={{ position: "relative", zIndex: 1, maxWidth: "420px", width: "100%" }}>
-            {/* Quote card */}
-            <div className="card" style={{
-              padding: "24px",
-              marginBottom: "16px"
-            }}>
-              <p style={{ fontSize: "15px", fontWeight: 400, lineHeight: 1.6, color: "var(--c-text-primary)", marginBottom: "20px", fontStyle: "italic" }}>
-                "I used to rewrite my schedule every Sunday. Now Chronova does it — and honestly does it better."
+            <p className="eyebrow" style={{ marginBottom: "14px", justifyContent: "center", display: "flex" }}>
+              Built for schools and colleges
+            </p>
+
+            <div className="card" style={{ padding: "24px", marginBottom: "16px" }}>
+              <p style={{ fontSize: "15px", fontWeight: 400, lineHeight: 1.6, color: "var(--c-text-primary)", fontStyle: "italic" }}>
+                "Generating a conflict-free timetable used to take our admin team a full weekend. Now it's minutes."
               </p>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "var(--c-surface-2)", border: "1px solid var(--c-border-1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 600, color: "var(--c-text-primary)" }}>AM</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "20px" }}>
+                <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "var(--c-surface-2)", border: "1px solid var(--c-border-1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 600, color: "var(--c-text-primary)" }}>RS</div>
                 <div>
-                  <p style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--c-text-primary)" }}>Arjun Mehta</p>
-                  <p style={{ fontSize: "11px", color: "var(--c-text-tertiary)", fontWeight: 500 }}>JEE Aspirant · Delhi</p>
+                  <p style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--c-text-primary)" }}>Ritu Sharma</p>
+                  <p style={{ fontSize: "11px", color: "var(--c-text-tertiary)", fontWeight: 500 }}>Vice Principal, Delhi Public School</p>
                 </div>
               </div>
             </div>
 
-            {/* Mini stats */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {[
-                { value: "50K+", label: "Active students" },
-                { value: "94%", label: "Report better grades" },
-                { value: "4.9★", label: "Average rating" },
-                { value: "2,100+", label: "Schools trust us" },
-              ].map(({ value, label }) => (
-                <div key={label} className="card" style={{ padding: "12px 16px" }}>
-                  <p style={{ fontFamily: "var(--font-display)", fontSize: "18px", fontWeight: 650, color: "var(--c-text-primary)", letterSpacing: "-0.015em", marginBottom: "2px" }}>{value}</p>
-                  <p style={{ fontSize: "11px", color: "var(--c-text-tertiary)", fontWeight: 500 }}>{label}</p>
+                { icon: Users, title: "Manage teachers and classes", sub: "Roster, availability, and subjects in one place" },
+                { icon: GraduationCap, title: "AI-generated timetables", sub: "Conflict-free schedules across every batch" },
+                { icon: ClipboardCheck, title: "Requests and notifications", sub: "Reschedules, leave, and updates handled in-app" },
+              ].map(({ icon: Icon, title, sub }) => (
+                <div key={title} className="card" style={{ padding: "14px 16px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                  <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: "var(--c-accent-dim)", border: "1px solid var(--c-accent-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon size={14} color="var(--c-accent-dark)" />
+                  </div>
+                  <div>
+                    <p style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--c-text-primary)" }}>{title}</p>
+                    <p style={{ fontSize: "11.5px", color: "var(--c-text-secondary)", lineHeight: 1.5, marginTop: "2px" }}>{sub}</p>
+                  </div>
                 </div>
               ))}
             </div>

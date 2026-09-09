@@ -97,6 +97,9 @@ export default function LandingPage() {
 
             {/* Actions */}
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <Link href="/institution/login" className="desktop-only-nav" style={{ fontSize: "12px", color: "var(--c-text-tertiary)", textDecoration: "none", fontWeight: 500, padding: "6px 8px" }}>
+                Institution Login
+              </Link>
               <Link href="/login"><button className="btn btn-ghost" style={{ fontSize: "12.5px", fontWeight: 500, padding: "6px 10px" }}>Sign in</button></Link>
               <Link href="/signup">
                 <button className="btn btn-primary" style={{ fontSize: "12px", padding: "6px 12px" }}>
@@ -400,6 +403,7 @@ export default function LandingPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   <Link href="/signup" style={{ fontSize: "13px", color: "var(--c-text-secondary)", textDecoration: "none" }}>Get Started</Link>
                   <Link href="/login" style={{ fontSize: "13px", color: "var(--c-text-secondary)", textDecoration: "none" }}>Sign In</Link>
+                  <Link href="/institution/login" style={{ fontSize: "13px", color: "var(--c-text-secondary)", textDecoration: "none" }}>Institution Login</Link>
                   <a href="mailto:support@chronova.ai" style={{ fontSize: "13px", color: "var(--c-text-secondary)", textDecoration: "none" }}>Contact</a>
                 </div>
               </div>

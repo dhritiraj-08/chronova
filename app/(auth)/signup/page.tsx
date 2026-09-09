@@ -72,7 +72,7 @@ export default function SignupPage() {
         return;
       }
 
-      router.push(role === "institution" ? "/admin" : "/onboarding");
+      router.push(role === "institution" ? "/institution/login" : "/onboarding");
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
       setLoading(false);
