@@ -35,7 +35,6 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
-  const [role, setRole] = useState<"student" | "institution">("student");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -55,7 +54,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, name, role }),
+        body: JSON.stringify({ email, password, name }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -72,11 +71,10 @@ export default function SignupPage() {
         return;
       }
 
-      // Already authenticated at this point (signInWithPassword just above),
-      // so send an institution signup straight to /admin — it resolves their
-      // role itself (falling back to the signup-time metadata flag) and
-      // auto-provisions their institution on that first load.
-      router.push(role === "institution" ? "/admin" : "/onboarding");
+      // Everyone who self-signs up is a student — institution admins and
+      // teachers are provisioned by an existing admin (via /admin/teachers),
+      // never through this public form.
+      router.push("/onboarding");
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
       setLoading(false);
@@ -111,25 +109,6 @@ export default function SignupPage() {
             <p style={{ fontSize: "13.5px", color: "var(--c-text-secondary)", marginTop: "6px", lineHeight: 1.5 }}>
               Free to start, no credit card required — you'll have a real schedule in about three minutes.
             </p>
-          </div>
-
-          {/* Role selector tabs */}
-          <div style={{ display: "flex", gap: "4px", background: "var(--c-surface-2)", borderRadius: "var(--r-md)", padding: "3px", border: "1px solid var(--c-border-1)", marginBottom: "22px" }}>
-            {(["student", "institution"] as const).map(r => (
-              <button
-                type="button"
-                key={r}
-                onClick={() => setRole(r)}
-                style={{
-                  flex: 1, padding: "7px 12px", borderRadius: "var(--r-sm)", border: "none", cursor: "pointer",
-                  fontSize: "12.5px", fontWeight: 500, transition: "all var(--t-fast)",
-                  background: role === r ? "var(--c-surface-3)" : "transparent",
-                  color: role === r ? "var(--c-text-primary)" : "var(--c-text-secondary)"
-                }}
-              >
-                {r.charAt(0).toUpperCase() + r.slice(1)} Portal
-              </button>
-            ))}
           </div>
 
           {/* Form */}
