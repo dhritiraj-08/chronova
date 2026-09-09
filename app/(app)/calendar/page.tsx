@@ -8,6 +8,7 @@ import {
 import { useScheduleStore, ScheduleEvent } from "@/lib/store/scheduleStore";
 import { createClient } from "@/lib/supabase/client";
 import { generateRulesBasedSchedule } from "@/lib/scheduling/engine";
+import { TimeInput } from "@/components/TimeInput";
 
 const HOURS = Array.from({ length: 17 }, (_, i) => i + 6); // 6am – 10pm
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -32,6 +33,21 @@ function fmtHour(h: number) {
   const hr = Math.floor(h);
   const min = String(Math.round((h % 1) * 60)).padStart(2, "0");
   return `${hr}:${min}`;
+}
+
+// The Edit Session modal stores start/end as decimal hours (e.g. 14.5), while
+// TimeInput speaks 24-hour "HH:MM" strings — these convert between the two.
+function decimalToTimeStr(h: number): string {
+  const hour = Math.floor(h);
+  const min = Math.round((h % 1) * 60);
+  return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function timeStrToDecimal(t: string): number {
+  const [hStr, mStr] = t.split(":");
+  const h = parseInt(hStr, 10) || 0;
+  const m = parseInt(mStr, 10) || 0;
+  return h + m / 60;
 }
 
 interface PositionedEvent {
@@ -785,11 +801,11 @@ export default function CalendarPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <div>
                   <label className="form-label" htmlFor="add-start-time">Start Time</label>
-                  <input id="add-start-time" type="time" className="input" value={newEvent.start} onChange={e => setNewEvent(p => ({ ...p, start: e.target.value }))} />
+                  <TimeInput id="add-start-time" value={newEvent.start} onChange={v => setNewEvent(p => ({ ...p, start: v }))} />
                 </div>
                 <div>
                   <label className="form-label" htmlFor="add-end-time">End Time</label>
-                  <input id="add-end-time" type="time" className="input" value={newEvent.end} onChange={e => setNewEvent(p => ({ ...p, end: e.target.value }))} />
+                  <TimeInput id="add-end-time" value={newEvent.end} onChange={v => setNewEvent(p => ({ ...p, end: v }))} />
                 </div>
               </div>
 
@@ -855,29 +871,19 @@ export default function CalendarPage() {
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <div>
-                  <label className="form-label" htmlFor="edit-start-hour">Start Hour (Decimal)</label>
-                  <input 
+                  <label className="form-label" htmlFor="edit-start-hour">Start Time</label>
+                  <TimeInput
                     id="edit-start-hour"
-                    type="number" 
-                    step="0.25"
-                    min="6"
-                    max="22"
-                    className="input" 
-                    value={editingEvent.start} 
-                    onChange={e => setEditingEvent(p => p ? ({ ...p, start: parseFloat(e.target.value) || 9.0 }) : null)} 
+                    value={decimalToTimeStr(editingEvent.start)}
+                    onChange={v => setEditingEvent(p => p ? ({ ...p, start: timeStrToDecimal(v) }) : null)}
                   />
                 </div>
                 <div>
-                  <label className="form-label" htmlFor="edit-end-hour">End Hour (Decimal)</label>
-                  <input 
+                  <label className="form-label" htmlFor="edit-end-hour">End Time</label>
+                  <TimeInput
                     id="edit-end-hour"
-                    type="number" 
-                    step="0.25"
-                    min="6"
-                    max="22"
-                    className="input" 
-                    value={editingEvent.end} 
-                    onChange={e => setEditingEvent(p => p ? ({ ...p, end: parseFloat(e.target.value) || 10.0 }) : null)} 
+                    value={decimalToTimeStr(editingEvent.end)}
+                    onChange={v => setEditingEvent(p => p ? ({ ...p, end: timeStrToDecimal(v) }) : null)}
                   />
                 </div>
               </div>

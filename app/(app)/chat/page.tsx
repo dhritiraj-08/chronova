@@ -353,7 +353,7 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...history, { role: "user", content: msg }],
-          userContext: { events }
+          userContext: { events, goals: profileContext.goals }
         }),
       });
 
@@ -702,7 +702,22 @@ export default function ChatPage() {
                             <button
                               onClick={() => {
                                 if (parsedEvents) {
-                                  setEvents(parsedEvents);
+                                  // The model now sends only new/changed/removed events (see
+                                  // CHAT_SYSTEM_PROMPT) — merge them into the existing schedule
+                                  // by id instead of replacing the whole week, which is also what
+                                  // lets small/free models reply reliably without truncating a
+                                  // full-week JSON array before it becomes valid.
+                                  const merged = [...events];
+                                  parsedEvents.forEach(pe => {
+                                    const idx = merged.findIndex(e => String(e.id) === String(pe.id));
+                                    if ((pe as any).deleted) {
+                                      if (idx !== -1) merged.splice(idx, 1);
+                                      return;
+                                    }
+                                    if (idx !== -1) merged[idx] = { ...merged[idx], ...pe };
+                                    else merged.push(pe);
+                                  });
+                                  setEvents(merged);
                                   setApplyStatus(prev => ({ ...prev, [msg.id]: "success" }));
                                 } else {
                                   setApplyStatus(prev => ({ ...prev, [msg.id]: "none" }));

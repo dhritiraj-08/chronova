@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { BookOpen, Moon, ChevronRight, ChevronLeft, Plus, X, Check, Sparkles } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { TimeInput } from "@/components/TimeInput";
 import { SUBJECT_COLORS } from "@/lib/utils";
 
 const STEPS = ["Profile", "Subjects", "Schedule", "Goals"];
@@ -50,6 +51,8 @@ export default function OnboardingPage() {
   const [collegeStart, setCollegeStart] = useState("09:00");
   const [collegeEnd, setCollegeEnd] = useState("15:00");
   const [goals, setGoals] = useState<string[]>([]);
+  const [showCustomGoal, setShowCustomGoal] = useState(false);
+  const [customGoal, setCustomGoal] = useState("");
 
   function addSubject(name: string) {
     if (!name.trim() || subjects.find((s) => s.name === name)) return;
@@ -75,10 +78,15 @@ export default function OnboardingPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
 
+    // Fold the free-text "Other" goal in alongside the picked preset goals —
+    // the AI context (see chat/page.tsx) reads this same profiles.goals
+    // array, so a custom goal here reaches schedule generation for free.
+    const finalGoals = customGoal.trim() ? [...goals, customGoal.trim()] : goals;
+
     await supabase.from("profiles").update({
       education_level: educationLevel,
       age: parseInt(age) || null,
-      goals, sleep_start: sleepStart, sleep_end: sleepEnd, onboarded: true,
+      goals: finalGoals, sleep_start: sleepStart, sleep_end: sleepEnd, onboarded: true,
     }).eq("id", user.id);
 
     if (subjects.length > 0) {
@@ -241,12 +249,12 @@ export default function OnboardingPage() {
                 <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: "10.5px", color: "var(--c-text-tertiary)", fontWeight: 500, marginBottom: "4px" }}>Bedtime</p>
-                    <input type="time" value={sleepStart} onChange={(e) => setSleepStart(e.target.value)} className="input" />
+                    <TimeInput id="onboard-sleep-start" value={sleepStart} onChange={setSleepStart} />
                   </div>
                   <span style={{ color: "var(--c-text-tertiary)", fontSize: "12.5px", marginTop: "14px" }}>→</span>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: "10.5px", color: "var(--c-text-tertiary)", fontWeight: 500, marginBottom: "4px" }}>Wake Up</p>
-                    <input type="time" value={sleepEnd} onChange={(e) => setSleepEnd(e.target.value)} className="input" />
+                    <TimeInput id="onboard-sleep-end" value={sleepEnd} onChange={setSleepEnd} />
                   </div>
                 </div>
               </div>
@@ -259,12 +267,12 @@ export default function OnboardingPage() {
                 <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: "10.5px", color: "var(--c-text-tertiary)", fontWeight: 500, marginBottom: "4px" }}>Start</p>
-                    <input type="time" value={collegeStart} onChange={(e) => setCollegeStart(e.target.value)} className="input" />
+                    <TimeInput id="onboard-college-start" value={collegeStart} onChange={setCollegeStart} />
                   </div>
                   <span style={{ color: "var(--c-text-tertiary)", fontSize: "12.5px", marginTop: "14px" }}>→</span>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: "10.5px", color: "var(--c-text-tertiary)", fontWeight: 500, marginBottom: "4px" }}>End</p>
-                    <input type="time" value={collegeEnd} onChange={(e) => setCollegeEnd(e.target.value)} className="input" />
+                    <TimeInput id="onboard-college-end" value={collegeEnd} onChange={setCollegeEnd} />
                   </div>
                 </div>
               </div>
@@ -303,6 +311,42 @@ export default function OnboardingPage() {
                     </button>
                   );
                 })}
+
+                {/* "Other" — reveals a free-text field instead of toggling a preset goal */}
+                <button
+                  onClick={() => setShowCustomGoal((v) => !v)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    padding: "10px 14px", borderRadius: "var(--r-md)", textAlign: "left",
+                    cursor: "pointer", transition: "all var(--t-fast)",
+                    background: showCustomGoal ? "var(--c-surface-2)" : "transparent",
+                    border: showCustomGoal ? "1px solid var(--c-border-2)" : "1px solid var(--c-border-1)",
+                    color: "var(--c-text-primary)",
+                  }}
+                >
+                  <div style={{
+                    width: "16px", height: "16px", borderRadius: "var(--r-sm)", flexShrink: 0,
+                    background: showCustomGoal ? "var(--c-accent)" : "transparent",
+                    border: showCustomGoal ? "1px solid transparent" : "1px solid var(--c-border-2)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {showCustomGoal && <Check size={10} color="white" />}
+                  </div>
+                  <span style={{ fontSize: "13px", fontWeight: 500 }}>Other</span>
+                </button>
+
+                {showCustomGoal && (
+                  <input
+                    id="onboard-custom-goal"
+                    type="text"
+                    placeholder="Type your own goal…"
+                    value={customGoal}
+                    onChange={(e) => setCustomGoal(e.target.value)}
+                    className="input"
+                    style={{ marginTop: "2px" }}
+                    autoFocus
+                  />
+                )}
               </div>
             </div>
           )}

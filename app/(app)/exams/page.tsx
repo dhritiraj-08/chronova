@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, X, Calendar, BookOpen, AlertCircle, Trash2, Sparkles, Check, ChevronRight, Clock, MapPin, Award } from "lucide-react";
+import { Plus, X, Calendar, BookOpen, AlertCircle, Trash2, Sparkles, Check, ChevronRight, Clock, MapPin, Award, Upload, Image as ImageIcon, FileText, Loader2, ArrowLeft } from "lucide-react";
 import { useScheduleStore, Exam } from "@/lib/store/scheduleStore";
 import { createClient } from "@/lib/supabase/client";
+import { TimeInput } from "@/components/TimeInput";
 
 // "14:30" -> "2:30 PM"
 function fmtTime(time: string): string {
@@ -23,6 +24,19 @@ function fmtDuration(minutes: number): string {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
+}
+
+// One exam entry parsed by AI from an uploaded image/text timetable, staged
+// in the "Upload Exam Schedule" preview before the student confirms which
+// ones to actually create.
+interface ParsedExamEntry {
+  name: string;
+  subject: string;
+  date: string;
+  examTime?: string;
+  venue?: string;
+  durationMinutes?: number;
+  selected: boolean;
 }
 
 export default function ExamsPage() {
@@ -117,6 +131,121 @@ export default function ExamsPage() {
     setShowAddModal(false);
   };
 
+  // ── Upload Exam Schedule (image or pasted text → AI-parsed exam entries) ──
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadMode, setUploadMode] = useState<"image" | "text">("image");
+  const [uploadImageDataUrl, setUploadImageDataUrl] = useState("");
+  const [uploadImageMime, setUploadImageMime] = useState("");
+  const [uploadText, setUploadText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState("");
+  const [parsedEntries, setParsedEntries] = useState<ParsedExamEntry[] | null>(null);
+  const [confirmingImport, setConfirmingImport] = useState(false);
+
+  function resetUploadState() {
+    setUploadMode("image");
+    setUploadImageDataUrl("");
+    setUploadImageMime("");
+    setUploadText("");
+    setParsing(false);
+    setParseError("");
+    setParsedEntries(null);
+    setConfirmingImport(false);
+  }
+
+  function handleImageFile(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setParseError("Please choose an image file (JPG or PNG).");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setParseError("That image is too large — please use a file under 8MB.");
+      return;
+    }
+    setParseError("");
+    const reader = new FileReader();
+    reader.onload = () => setUploadImageDataUrl(reader.result as string);
+    reader.readAsDataURL(file);
+    setUploadImageMime(file.type);
+  }
+
+  async function handleParse() {
+    setParseError("");
+    setParsedEntries(null);
+
+    const body: any = {};
+    if (uploadMode === "image") {
+      if (!uploadImageDataUrl) { setParseError("Choose an image first."); return; }
+      body.imageBase64 = uploadImageDataUrl.split(",")[1] || "";
+      body.mimeType = uploadImageMime;
+      if (uploadText.trim()) body.text = uploadText.trim();
+    } else {
+      if (!uploadText.trim()) { setParseError("Paste the exam schedule text first."); return; }
+      body.text = uploadText.trim();
+    }
+
+    setParsing(true);
+    try {
+      const res = await fetch("/api/exams/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setParseError(data.error || "Couldn't parse that. Please try again.");
+        return;
+      }
+      const entries: ParsedExamEntry[] = (data.exams || [])
+        .map((e: any) => ({
+          name: e.name || e.subject || "Exam",
+          subject: e.subject || e.name || "General",
+          date: e.date || "",
+          examTime: e.examTime || "",
+          venue: e.venue || "",
+          durationMinutes: e.durationMinutes ?? undefined,
+          selected: true,
+        }))
+        .filter((e: ParsedExamEntry) => e.date); // drop entries with no usable date
+      if (entries.length === 0) {
+        setParseError("No exam entries with a readable date were found. Try a clearer image, or paste the schedule as text instead.");
+      }
+      setParsedEntries(entries);
+    } catch (err: any) {
+      setParseError(err.message || "Something went wrong while parsing.");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function toggleParsedEntry(idx: number) {
+    setParsedEntries(prev => prev ? prev.map((e, i) => i === idx ? { ...e, selected: !e.selected } : e) : prev);
+  }
+
+  async function handleConfirmImport() {
+    if (!parsedEntries) return;
+    const toAdd = parsedEntries.filter(e => e.selected);
+    if (toAdd.length === 0) return;
+    setConfirmingImport(true);
+    for (const entry of toAdd) {
+      await addExam({
+        name: entry.name,
+        subject: entry.subject,
+        date: entry.date,
+        chapters: 8,
+        completedChapters: 0,
+        priority: "Medium",
+        examTime: entry.examTime || undefined,
+        durationMinutes: entry.durationMinutes || undefined,
+        venue: entry.venue || undefined,
+        examType: "Final Exam",
+      });
+    }
+    setConfirmingImport(false);
+    setShowUploadModal(false);
+    resetUploadState();
+  }
+
   if (isLoading) {
     return (
       <div style={{ display: "flex", minHeight: "60vh", alignItems: "center", justifyContent: "center", color: "var(--c-text-secondary)" }}>
@@ -137,14 +266,24 @@ export default function ExamsPage() {
             Track chapter readiness, countdown dates, and activate AI revision plans.
           </p>
         </div>
-        <button 
-          id="add-exam-btn"
-          onClick={() => setShowAddModal(true)} 
-          className="btn btn-primary" 
-          style={{ fontSize: "13.5px", padding: "10px 20px" }}
-        >
-          <Plus size={15} style={{ marginRight: "4px" }} /> Add Exam
-        </button>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            id="upload-exam-schedule-btn"
+            onClick={() => { resetUploadState(); setShowUploadModal(true); }}
+            className="btn btn-secondary"
+            style={{ fontSize: "13.5px", padding: "10px 20px" }}
+          >
+            <Upload size={15} style={{ marginRight: "4px" }} /> Upload Exam Schedule
+          </button>
+          <button
+            id="add-exam-btn"
+            onClick={() => setShowAddModal(true)}
+            className="btn btn-primary"
+            style={{ fontSize: "13.5px", padding: "10px 20px" }}
+          >
+            <Plus size={15} style={{ marginRight: "4px" }} /> Add Exam
+          </button>
+        </div>
       </div>
 
       {exams.length === 0 ? (
@@ -161,13 +300,22 @@ export default function ExamsPage() {
           <p style={{ fontSize: "13px", color: "var(--c-text-secondary)", marginTop: "4px", maxWidth: "380px", margin: "4px auto 0 auto" }}>
             Add your first exam syllabus here, and let Chronova build revision milestone slots automatically.
           </p>
-          <button 
-            onClick={() => setShowAddModal(true)} 
-            className="btn btn-secondary" 
-            style={{ marginTop: "20px", fontSize: "13px" }}
-          >
-            Create Exam Plan
-          </button>
+          <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginTop: "20px" }}>
+            <button
+              onClick={() => { resetUploadState(); setShowUploadModal(true); }}
+              className="btn btn-secondary"
+              style={{ fontSize: "13px" }}
+            >
+              <Upload size={13} style={{ marginRight: "4px" }} /> Upload Exam Schedule
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="btn btn-primary"
+              style={{ fontSize: "13px" }}
+            >
+              Create Exam Plan
+            </button>
+          </div>
         </div>
       ) : (
         /* Exams Grid */
@@ -436,12 +584,10 @@ export default function ExamsPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <div>
                   <label className="form-label" htmlFor="exam-time-input">Exam Time</label>
-                  <input
+                  <TimeInput
                     id="exam-time-input"
-                    type="time"
-                    className="input"
                     value={newExam.examTime}
-                    onChange={(e) => setNewExam(p => ({ ...p, examTime: e.target.value }))}
+                    onChange={(v) => setNewExam(p => ({ ...p, examTime: v }))}
                   />
                 </div>
                 <div>
@@ -546,6 +692,200 @@ export default function ExamsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Exam Schedule Modal overlay */}
+      {showUploadModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(3,3,7,0.72)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, backdropFilter: "blur(8px)" }}>
+          <div className="card animate-up" style={{ padding: "32px", width: "480px", maxHeight: "88vh", overflowY: "auto", background: "var(--c-surface-1)", border: "1px solid var(--c-border-2)", boxShadow: "var(--sh-lg)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h3 style={{ fontSize: "18px", fontWeight: 800, color: "var(--c-text-primary)", fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>
+                {parsedEntries ? "Review Parsed Exams" : "Upload Exam Schedule"}
+              </h3>
+              <button
+                onClick={() => { setShowUploadModal(false); resetUploadState(); }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--c-text-tertiary)", display: "flex" }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {!parsedEntries ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <p style={{ fontSize: "12.5px", color: "var(--c-text-secondary)", lineHeight: 1.5 }}>
+                  Upload a photo/screenshot of your exam timetable, or paste it as text — Chronova will read it and stage the exams below for you to confirm.
+                </p>
+
+                {/* Mode tabs */}
+                <div style={{ display: "flex", gap: "6px", padding: "3px", background: "var(--c-surface-2)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border-1)" }}>
+                  {(["image", "text"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setUploadMode(mode)}
+                      style={{
+                        flex: 1, padding: "7px", borderRadius: "6px", border: "none", cursor: "pointer",
+                        fontSize: "12.5px", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "5px",
+                        background: uploadMode === mode ? "var(--c-surface-1)" : "transparent",
+                        color: uploadMode === mode ? "var(--c-text-primary)" : "var(--c-text-secondary)",
+                        boxShadow: uploadMode === mode ? "var(--sh-sm)" : "none",
+                      }}
+                    >
+                      {mode === "image" ? <ImageIcon size={13} /> : <FileText size={13} />}
+                      {mode === "image" ? "Upload Image" : "Paste Text"}
+                    </button>
+                  ))}
+                </div>
+
+                {uploadMode === "image" ? (
+                  <div>
+                    <label
+                      htmlFor="exam-schedule-image-input"
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px",
+                        padding: uploadImageDataUrl ? "0" : "28px 16px", borderRadius: "var(--r-lg)",
+                        border: "1px dashed var(--c-border-2)", background: "var(--c-surface-0)", cursor: "pointer", overflow: "hidden"
+                      }}
+                    >
+                      {uploadImageDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={uploadImageDataUrl} alt="Selected exam timetable" style={{ maxWidth: "100%", maxHeight: "220px", objectFit: "contain", borderRadius: "var(--r-md)" }} />
+                      ) : (
+                        <>
+                          <Upload size={22} color="var(--c-text-tertiary)" />
+                          <span style={{ fontSize: "12.5px", color: "var(--c-text-secondary)", fontWeight: 600 }}>Click to choose a photo or screenshot</span>
+                          <span style={{ fontSize: "11px", color: "var(--c-text-tertiary)" }}>JPG or PNG, up to 8MB</span>
+                        </>
+                      )}
+                    </label>
+                    <input
+                      id="exam-schedule-image-input"
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg"
+                      style={{ display: "none" }}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); }}
+                    />
+                    {uploadImageDataUrl && (
+                      <button
+                        type="button"
+                        onClick={() => { setUploadImageDataUrl(""); setUploadImageMime(""); }}
+                        className="btn btn-secondary"
+                        style={{ marginTop: "8px", fontSize: "11.5px", padding: "5px 10px" }}
+                      >
+                        Choose a different image
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <textarea
+                    id="exam-schedule-text-input"
+                    className="input"
+                    rows={6}
+                    placeholder={"Paste your exam schedule here, e.g.\nMathematics - 15 Oct 2026 - 10:00 AM\nPhysics - 17 Oct 2026 - 2:00 PM"}
+                    value={uploadText}
+                    onChange={(e) => setUploadText(e.target.value)}
+                    style={{ resize: "vertical", fontFamily: "var(--font-sans)", lineHeight: 1.5 }}
+                  />
+                )}
+
+                {parseError && (
+                  <div className="alert alert-error" style={{ padding: "8px 12px", fontSize: "12px" }}>
+                    <span>{parseError}</span>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowUploadModal(false); resetUploadState(); }}
+                    className="btn btn-secondary"
+                    style={{ flex: 1, padding: "12px" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleParse}
+                    disabled={parsing || (uploadMode === "image" ? !uploadImageDataUrl : !uploadText.trim())}
+                    className="btn btn-primary"
+                    style={{ flex: 1, padding: "12px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                  >
+                    {parsing ? <><Loader2 size={14} className="animate-spin" /> Reading schedule…</> : <><Sparkles size={14} /> Parse with AI</>}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                <button
+                  type="button"
+                  onClick={() => setParsedEntries(null)}
+                  style={{ display: "flex", alignItems: "center", gap: "4px", background: "none", border: "none", color: "var(--c-text-secondary)", fontSize: "11.5px", fontWeight: 600, cursor: "pointer", padding: 0, alignSelf: "flex-start" }}
+                >
+                  <ArrowLeft size={12} /> Back
+                </button>
+
+                {parsedEntries.length === 0 ? (
+                  <p style={{ fontSize: "12.5px", color: "var(--c-text-secondary)" }}>
+                    No exam entries were found. Go back and try a clearer image, or paste the schedule as text.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: "12.5px", color: "var(--c-text-secondary)" }}>
+                      Found {parsedEntries.length} exam{parsedEntries.length === 1 ? "" : "s"} — uncheck any you don't want, then confirm.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "320px", overflowY: "auto" }}>
+                      {parsedEntries.map((entry, idx) => (
+                        <label
+                          key={idx}
+                          style={{
+                            display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 12px",
+                            borderRadius: "var(--r-md)", border: "1px solid var(--c-border-1)",
+                            background: entry.selected ? "var(--c-surface-2)" : "transparent", cursor: "pointer"
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={entry.selected}
+                            onChange={() => toggleParsedEntry(idx)}
+                            style={{ marginTop: "3px" }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: "13px", fontWeight: 700, color: "var(--c-text-primary)" }} className="truncate">{entry.name}</p>
+                            <p style={{ fontSize: "11px", color: "var(--c-text-secondary)", marginTop: "2px" }}>
+                              {entry.subject} · {entry.date}
+                              {entry.examTime ? ` · ${fmtTime(entry.examTime)}` : ""}
+                              {entry.venue ? ` · ${entry.venue}` : ""}
+                            </p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowUploadModal(false); resetUploadState(); }}
+                    className="btn btn-secondary"
+                    style={{ flex: 1, padding: "12px" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmImport}
+                    disabled={confirmingImport || parsedEntries.filter(e => e.selected).length === 0}
+                    className="btn btn-primary"
+                    style={{ flex: 1, padding: "12px" }}
+                  >
+                    {confirmingImport ? "Adding…" : `Add ${parsedEntries.filter(e => e.selected).length} Exam${parsedEntries.filter(e => e.selected).length === 1 ? "" : "s"}`}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

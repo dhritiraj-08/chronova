@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Flame, Play, Pause, RotateCcw, Sparkles,
   ArrowRight, BookOpen, CheckCircle2, Circle,
   Brain, HeartPulse, MessageSquare, Calendar,
-  ChevronRight, Award
+  ChevronRight, Award, Maximize2, Minimize2
 } from "lucide-react";
 import Link from "next/link";
 import { useScheduleStore } from "@/lib/store/scheduleStore";
@@ -475,9 +475,9 @@ interface TimerProps {
   setTriggerPlay: (val: boolean) => void;
 }
 
-function FocusTimer({ 
+function FocusTimer({
   id,
-  todayEvents, 
+  todayEvents,
   toggleEventDone,
   activeSessionId,
   setActiveSessionId,
@@ -488,12 +488,26 @@ function FocusTimer({
   const [timerActive, setTimerActive] = useState(false);
   const [isBreakMode, setIsBreakMode] = useState(false);
   const [completedBanner, setCompletedBanner] = useState("");
+  // "compact" = default small card. "expanded" = larger prominent view, entered
+  // automatically the moment a focus block starts. "fullscreen" = the maximize
+  // button's overlay, which takes up most of the screen.
+  const [mode, setMode] = useState<"compact" | "expanded" | "fullscreen">("compact");
+  const modeBeforeFullscreen = useRef<"compact" | "expanded">("compact");
 
   const uncompletedSessions = todayEvents.filter(e => !e.done);
+
+  function fmtStart(h: number) {
+    const hr = Math.floor(h);
+    const min = String(Math.round((h % 1) * 60)).padStart(2, "0");
+    const ampm = hr >= 12 ? "PM" : "AM";
+    const displayHr = hr % 12 === 0 ? 12 : hr % 12;
+    return `${displayHr}:${min} ${ampm}`;
+  }
 
   useEffect(() => {
     if (triggerPlay) {
       setTimerActive(true);
+      setMode(m => m === "fullscreen" ? m : "expanded");
       setTriggerPlay(false);
     }
   }, [triggerPlay, setTriggerPlay]);
@@ -533,14 +547,30 @@ function FocusTimer({
     }
   }, [completedBanner]);
 
-  const toggleTimer = () => setTimerActive(!timerActive);
-  
+  const toggleTimer = () => {
+    setTimerActive(prev => {
+      const starting = !prev;
+      if (starting) setMode(m => m === "fullscreen" ? m : "expanded");
+      return starting;
+    });
+  };
+
   const resetTimer = () => {
     setTimerActive(false);
     setIsBreakMode(false);
     setTimeRemaining(25 * 60);
     setCompletedBanner("");
+    setMode("compact");
   };
+
+  function enterFullscreen() {
+    modeBeforeFullscreen.current = mode === "fullscreen" ? "expanded" : mode;
+    setMode("fullscreen");
+  }
+
+  function exitFullscreen() {
+    setMode(modeBeforeFullscreen.current);
+  }
 
   const minutes = Math.floor(timeRemaining / 60);
   const seconds = timeRemaining % 60;
@@ -552,71 +582,126 @@ function FocusTimer({
   const circumference = 2 * Math.PI * circleRadius;
   const strokeDashoffset = circumference - (progressPct / 100) * circumference;
 
-  return (
-    <div id={id} className="card" style={{ padding: "16px 20px", position: "relative", overflow: "hidden" }}>
-      <h3 style={{ fontSize: "13px", fontWeight: 600, fontFamily: "var(--font-display)", color: "var(--c-text-primary)" }}>
-        Focus Timer
-      </h3>
-      <p style={{ fontSize: "11px", color: "var(--c-text-secondary)", marginTop: "1px", lineHeight: 1.4 }}>
-        {isBreakMode
-          ? "Rest and take a deep breath — your 5-minute break is running."
-          : "Pick a session below, hit Focus, and we'll run a 25-minute block with an automatic break after."}
-      </p>
+  // Rendered twice at most (inline card, fullscreen overlay) but never both
+  // at once — `variant` keeps form element ids unique and picks sizing.
+  function renderBody(variant: "inline" | "overlay") {
+    const big = variant === "overlay";
+    const expanded = big || mode === "expanded";
+    const ringPx = big ? 260 : expanded ? 148 : 84;
+    const selectId = `timer-link-session-${variant}`;
 
-      {completedBanner && (
-        <div style={{
-          position: "absolute", inset: "0 0 auto 0", background: "var(--c-accent-dim)",
-          borderBottom: "1px solid var(--c-accent-border)", padding: "8px 12px", zIndex: 10, display: "flex", gap: "4px", alignItems: "center"
-        }} className="animate-up">
-          <Sparkles size={12} color="var(--c-accent-dark)" />
-          <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--c-accent-dark)" }}>{completedBanner}</span>
+    return (
+      <>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px" }}>
+          <div>
+            <h3 style={{ fontSize: big ? "18px" : "13px", fontWeight: 600, fontFamily: "var(--font-display)", color: "var(--c-text-primary)" }}>
+              Focus Timer
+            </h3>
+            <p style={{ fontSize: big ? "13px" : "11px", color: "var(--c-text-secondary)", marginTop: "1px", lineHeight: 1.4 }}>
+              {isBreakMode
+                ? "Rest and take a deep breath — your 5-minute break is running."
+                : "Pick a session below, hit Focus, and we'll run a 25-minute block with an automatic break after."}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+            {big ? (
+              <button onClick={exitFullscreen} className="btn btn-secondary" style={{ padding: "6px", borderRadius: "var(--r-md)", display: "flex" }} title="Exit fullscreen">
+                <Minimize2 size={14} />
+              </button>
+            ) : (
+              <button onClick={enterFullscreen} className="btn btn-secondary" style={{ padding: "6px", borderRadius: "var(--r-md)", display: "flex" }} title="Maximize">
+                <Maximize2 size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {completedBanner && (
+          <div style={{
+            marginTop: "10px", background: "var(--c-accent-dim)", border: "1px solid var(--c-accent-border)",
+            borderRadius: "var(--r-md)", padding: "8px 12px", display: "flex", gap: "4px", alignItems: "center"
+          }} className="animate-up">
+            <Sparkles size={12} color="var(--c-accent-dark)" />
+            <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--c-accent-dark)" }}>{completedBanner}</span>
+          </div>
+        )}
+
+        {/* Circle Loader */}
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", margin: big ? "28px 0" : expanded ? "18px 0" : "12px 0", position: "relative" }}>
+          <svg width={ringPx} height={ringPx} viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)" }}>
+            <circle cx="50" cy="50" r={circleRadius} stroke="rgba(255,255,255,0.015)" strokeWidth="4" fill="transparent" />
+            <circle cx="50" cy="50" r={circleRadius} stroke={isBreakMode ? "var(--c-success)" : "var(--c-accent)"} strokeWidth="4" fill="transparent"
+              strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.35s" }} />
+          </svg>
+
+          <div style={{ position: "absolute", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <span style={{ fontSize: big ? "44px" : expanded ? "26px" : "16px", fontWeight: 700, fontFamily: "var(--font-display)", color: "var(--c-text-primary)", letterSpacing: "-0.01em" }}>{timeStr}</span>
+            <span style={{ fontSize: big ? "13px" : expanded ? "10px" : "8px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600, color: isBreakMode ? "#047857" : "var(--c-accent-dark)" }}>
+              {isBreakMode ? "Break" : "Focus"}
+            </span>
+            {activeSessionId && !isBreakMode && (
+              <span style={{ fontSize: big ? "13px" : "10px", color: "var(--c-text-secondary)", marginTop: "4px", maxWidth: big ? "320px" : "140px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {todayEvents.find(e => e.id === activeSessionId)?.title}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Linked study session dropdown */}
+        <div style={{ marginBottom: big ? "18px" : "10px", maxWidth: big ? "360px" : undefined, margin: big ? "0 auto 18px" : undefined }}>
+          <label className="form-label" style={{ fontSize: big ? "12px" : "10px", fontWeight: 600 }} htmlFor={selectId}>Which session is this for?</label>
+          <select
+            id={selectId}
+            value={activeSessionId}
+            onChange={e => setActiveSessionId(e.target.value)}
+            disabled={timerActive || isBreakMode}
+            className="input"
+            style={{ padding: big ? "10px 12px" : "6px 10px", background: "var(--c-surface-2)", color: "var(--c-text-secondary)", fontSize: big ? "13px" : "12px" }}
+          >
+            <option value="">-- General Study --</option>
+            {uncompletedSessions.map(s => (
+              <option key={s.id} value={s.id}>
+                {fmtStart(s.start)} — {s.title}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: "flex", gap: "8px", maxWidth: big ? "360px" : undefined, margin: big ? "0 auto" : undefined }}>
+          <button onClick={toggleTimer} className="btn btn-primary" style={{ flex: 1, fontSize: big ? "14px" : "12px", padding: big ? "12px" : "8px", borderRadius: "var(--r-md)", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+            {timerActive ? <><Pause size={big ? 15 : 12} /> Pause</> : <><Play size={big ? 15 : 12} fill="currentColor" /> Focus</>}
+          </button>
+          <button onClick={resetTimer} className="btn btn-secondary" style={{ padding: big ? "12px" : "8px", borderRadius: "var(--r-md)", display: "flex", alignItems: "center", justifyContent: "center" }} title="Reset Timer">
+            <RotateCcw size={big ? 15 : 12} />
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div id={id} className="card" style={{ padding: "16px 20px", position: "relative", overflow: "hidden", transition: "all var(--t-base)" }}>
+        {mode === "fullscreen" ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "13px", fontWeight: 600, fontFamily: "var(--font-display)", color: "var(--c-text-primary)" }}>Focus Timer</span>
+            <button onClick={exitFullscreen} className="btn btn-secondary" style={{ padding: "6px 10px", borderRadius: "var(--r-md)", fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" }}>
+              <Minimize2 size={12} /> Running in fullscreen
+            </button>
+          </div>
+        ) : renderBody("inline")}
+      </div>
+
+      {mode === "fullscreen" && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(15,17,23,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400 }}
+          onClick={(e) => { if (e.target === e.currentTarget) exitFullscreen(); }}
+        >
+          <div className="card animate-up" style={{ padding: "32px 40px", width: "min(520px, 92vw)", background: "var(--c-surface-1)", border: "1px solid var(--c-border-1)" }}>
+            {renderBody("overlay")}
+          </div>
         </div>
       )}
-
-      {/* Circle Loader */}
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", margin: "12px 0", position: "relative" }}>
-        <svg width="84" height="84" viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)" }}>
-          <circle cx="50" cy="50" r={circleRadius} stroke="rgba(255,255,255,0.015)" strokeWidth="4" fill="transparent" />
-          <circle cx="50" cy="50" r={circleRadius} stroke={isBreakMode ? "var(--c-success)" : "var(--c-accent)"} strokeWidth="4" fill="transparent"
-            strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.35s" }} />
-        </svg>
-
-        <div style={{ position: "absolute", display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <span style={{ fontSize: "16px", fontWeight: 700, fontFamily: "var(--font-display)", color: "var(--c-text-primary)", letterSpacing: "-0.01em" }}>{timeStr}</span>
-          <span style={{ fontSize: "8px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600, color: isBreakMode ? "#047857" : "var(--c-accent-dark)" }}>
-            {isBreakMode ? "Break" : "Focus"}
-          </span>
-        </div>
-      </div>
-
-      {/* Linked study session dropdown */}
-      <div style={{ marginBottom: "10px" }}>
-        <label className="form-label" style={{ fontSize: "10px", fontWeight: 600 }} htmlFor="timer-link-session">Which session is this for?</label>
-        <select 
-          id="timer-link-session"
-          value={activeSessionId} 
-          onChange={e => setActiveSessionId(e.target.value)} 
-          disabled={timerActive || isBreakMode}
-          className="input" 
-          style={{ padding: "6px 10px", background: "var(--c-surface-2)", color: "var(--c-text-secondary)", fontSize: "12px" }}
-        >
-          <option value="">-- General Study --</option>
-          {uncompletedSessions.map(s => (
-            <option key={s.id} value={s.id}>
-              {s.title}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ display: "flex", gap: "8px" }}>
-        <button onClick={toggleTimer} className="btn btn-primary" style={{ flex: 1, fontSize: "12px", padding: "8px", borderRadius: "var(--r-md)", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
-          {timerActive ? <><Pause size={12} /> Pause</> : <><Play size={12} fill="currentColor" /> Focus</>}
-        </button>
-        <button onClick={resetTimer} className="btn btn-secondary" style={{ padding: "8px", borderRadius: "var(--r-md)", display: "flex", alignItems: "center", justifyContent: "center" }} title="Reset Timer">
-          <RotateCcw size={12} />
-        </button>
-      </div>
-    </div>
+    </>
   );
 }

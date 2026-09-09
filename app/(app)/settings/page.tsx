@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useScheduleStore } from "@/lib/store/scheduleStore";
+import { TimeInput } from "@/components/TimeInput";
 import { Save, Bell, Shield, User, Sun, Palette, GraduationCap, Clock } from "lucide-react";
 
 export default function SettingsPage() {
@@ -319,12 +320,12 @@ export default function SettingsPage() {
           <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
             <div style={{ flex: 1 }}>
               <label className="form-label" htmlFor="settings-sleep-start">Bedtime</label>
-              <input id="settings-sleep-start" type="time" className="input" value={profile?.sleep_start || "23:00"} onChange={e => setProfile((p: any) => ({ ...p, sleep_start: e.target.value }))} />
+              <TimeInput id="settings-sleep-start" value={profile?.sleep_start || "23:00"} onChange={v => setProfile((p: any) => ({ ...p, sleep_start: v }))} />
             </div>
             <span style={{ color: "var(--c-text-tertiary)", marginTop: "18px", fontSize: "12.5px" }}>to</span>
             <div style={{ flex: 1 }}>
               <label className="form-label" htmlFor="settings-sleep-end">Wake Up</label>
-              <input id="settings-sleep-end" type="time" className="input" value={profile?.sleep_end || "07:00"} onChange={e => setProfile((p: any) => ({ ...p, sleep_end: e.target.value }))} />
+              <TimeInput id="settings-sleep-end" value={profile?.sleep_end || "07:00"} onChange={v => setProfile((p: any) => ({ ...p, sleep_end: v }))} />
             </div>
           </div>
         </div>

@@ -63,8 +63,8 @@ TYPE B — Schedule change request (REQUIRES timetable data):
 Examples: "move math to 5pm", "add gym at 6pm", "I missed chemistry today", "update today's math class from 9 to 10", "make a revision plan for my exam", "generate/create a new timetable".
 For TYPE B messages you MUST:
 1. Explain your recommendations/changes in a friendly, encouraging, and concise manner (plain text, before the tag block).
-2. Output the FULL updated weekly schedule inside a <timetable_data>...</timetable_data> tag block.
-3. The content inside <timetable_data> MUST be a single, valid JSON array of all weekly events (both existing ones from context and new ones you are adding/modifying).
+2. Output ONLY the events that are new, changed, or removed inside a <timetable_data>...</timetable_data> tag block — NOT the full weekly schedule. The app already has every existing event from USER CONTEXT and merges your delta into it by id, so re-sending unchanged events wastes tokens and risks the response being cut off before it's valid JSON.
+3. The content inside <timetable_data> MUST be a single, valid JSON array of ONLY the new/changed/removed events.
 4. Each event in the JSON array must follow this exact structure:
 {
   "id": "unique_id_string_or_number",
@@ -75,13 +75,18 @@ For TYPE B messages you MUST:
   "done": false,
   "colorIdx": 0  // 0 to 5 for color coding. Colors represent: 0=Math (purple), 1=Physics (green), 2=College/Classes (cyan), 3=Gym/Sports/Chemistry (sky), 4=English/Revision (rose), 5=Others (indigo)
 }
+To DELETE an event, include it with its original id plus "deleted": true — omit start/end/etc, they're ignored.
+
+ID RULES (how the merge works):
+- Modifying or deleting an EXISTING event: reuse its exact original "id" from USER CONTEXT so the app can find and replace/remove it. Do not invent a new id for something that already exists.
+- Adding a brand-new event: invent a short new descriptive id (e.g. "gym_tue_1") that does not match any existing id.
 
 CRITICAL RULES:
 - Only include a <timetable_data> block for TYPE B messages. If nothing in the schedule actually changes, do NOT include the block — pure Q&A and advice always gets plain text only.
-- If the user asks for ANY modification, change, addition, deletion, or rescheduling of events (TYPE B), you MUST apply that change to the JSON array of events and output the <timetable_data> tag block.
+- If the user asks for ANY modification, change, addition, deletion, or rescheduling of events (TYPE B), you MUST include that event (with correct id) in the JSON array and output the <timetable_data> tag block.
 - DO NOT say you have updated the calendar or made changes without outputting the <timetable_data> tag block. The calendar will ONLY update if you output the <timetable_data> tag block.
-- For example, if they say "update today's math class from 9 to 10", find the Mathematics class for today's day index, change its start to 9.0 and end to 10.0, update the array, and print the <timetable_data>[JSON ARRAY]</timetable_data> block at the end of your message.
-- Ensure all other existing events from context are kept in the array unless the user explicitly wants them deleted or changed.
+- For example, if they say "update today's math class from 9 to 10", find the Mathematics class for today's day index in USER CONTEXT, output ONLY that one event with its original id and the new start (9.0) and end (10.0) inside <timetable_data>[...]</timetable_data> — do not repeat any other event.
+- Do NOT re-list events that aren't changing — only new, modified, or deleted ones belong in the array.
 - Do NOT write any text, markdown, or comments inside the <timetable_data> tag block other than the raw JSON array.
 - Ensure the JSON is properly formatted.
 - Always tailor your reply to the specific wording of the user's latest message — never fall back to a generic, repeated response.
@@ -120,3 +125,24 @@ OUTPUT FORMAT:
   "conflicts": [],
   "summary": "Timetable optimization notes"
 }`;
+
+// Used by /api/exams/parse (Exams page "Upload Exam Schedule"). {{TODAY}} is
+// filled in server-side with the current date so the model can infer a
+// sensible year when a timetable only prints "15 Oct" with no year.
+export const EXAM_PARSE_SYSTEM_PROMPT = `You extract exam schedule details from a timetable image or pasted text (a photo, screenshot, or plain text list of exams) and output ONLY a valid JSON array — no markdown, no code fences, no commentary, no trailing text.
+
+Each object in the array must use this exact shape:
+{
+  "name": "string - the exam/subject title as shown, e.g. 'Mathematics Final'",
+  "subject": "string - the subject name (can match name)",
+  "date": "YYYY-MM-DD",
+  "examTime": "HH:MM in 24-hour time, or \\"\\" if no time is shown",
+  "venue": "string, or \\"\\" if not shown",
+  "durationMinutes": number, or null if not shown
+}
+
+Rules:
+- Extract every exam/subject entry you can find, in the order they appear.
+- Today's date is {{TODAY}}. If a year isn't printed on the timetable, infer the nearest sensible upcoming year.
+- If a specific date is genuinely ambiguous or illegible, skip that entry rather than guessing wildly — it's better to omit one entry than invent a wrong date.
+- Return ONLY the JSON array. If you can't find any exam entries at all, return exactly: []`;
