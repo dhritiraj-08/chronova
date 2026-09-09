@@ -135,12 +135,12 @@ export default function SignupPage() {
           {/* Form */}
           <form onSubmit={handleSignup} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             {error && (
-              <div className="alert alert-error" style={{ padding: "8px 12px", fontSize: "12px" }}>
+              <div className="alert alert-error" style={{ padding: "8px 12px", fontSize: "12px", lineHeight: 1.5 }}>
                 {errorCode === "email_exists" ? (
                   <span>
-                    This email is already registered. Please{" "}
+                    {error} Already have an account?{" "}
                     <Link href="/login" style={{ color: "inherit", textDecoration: "underline", fontWeight: 600 }}>
-                      sign in instead
+                      Sign in instead
                     </Link>.
                   </span>
                 ) : (

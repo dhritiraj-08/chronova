@@ -8,64 +8,39 @@ import { resolveUserRole, roleHomePath } from "@/lib/auth/resolveRole";
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
-// A single login page for both portals, chosen via the tab selector below —
-// NOT auto-detected from the account's role. That's deliberate: the same
-// email/account can be a student AND an institution admin/teacher
-// independently, so which tab is selected when the form is submitted is
-// what decides which experience they get this session.
-//
-// Student Portal: always lands on /dashboard, full stop — never checks or
-// redirects based on institution_members role.
-//
-// Institution Portal: resolves the account's real institution role and
-// sends them to /admin or /teacher; an account with no institution
-// membership gets an inline "no institution account" message instead of
-// being silently sent anywhere.
-type Portal = "student" | "institution";
-
+// A single login form for every account. There's no portal tab here on
+// purpose — signup enforces one email per portal (see /api/auth/signup:
+// a student signup is refused if that email already has an
+// institution_members row, and vice versa), so an email's role is never
+// ambiguous. After sign-in, resolveUserRole looks up the real role
+// (institution_members first, falling back to the signup-time metadata
+// flag for a first-time admin not yet auto-provisioned) and roleHomePath
+// sends them straight to /dashboard, /admin, or /teacher accordingly.
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [portal, setPortal] = useState<Portal>("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [notInstitution, setNotInstitution] = useState(false);
 
   useEffect(() => {
-    // Only auto-redirect an already-logged-in visitor for the student
-    // portal (its destination never depends on role, so there's nothing to
-    // resolve). On the institution tab we deliberately wait for an
-    // explicit submit — silently redirecting on mount would mean the tab
-    // choice never actually got a chance to matter.
-    if (portal !== "student") return;
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) router.push("/dashboard");
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (user) await redirectToRoleHome(user);
     });
-  }, [portal, router, supabase]);
+  }, [router, supabase]);
 
-  async function handleAuthenticatedUser(user: NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"]>) {
-    if (portal === "student") {
-      router.push("/dashboard");
-      return;
-    }
+  async function redirectToRoleHome(user: NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"]>) {
     const role = await resolveUserRole(supabase, user);
-    if (role === "admin" || role === "teacher") {
-      router.push(roleHomePath(role));
-    } else {
-      setNotInstitution(true);
-      setLoading(false);
-    }
+    router.push(roleHomePath(role));
   }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setNotInstitution(false);
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -86,7 +61,7 @@ export default function LoginPage() {
               setError(retry.error?.message || "Sign in failed.");
               setLoading(false);
             } else {
-              await handleAuthenticatedUser(retry.data.user);
+              await redirectToRoleHome(retry.data.user);
             }
           } else {
             setError(confirmData.error || error.message);
@@ -101,7 +76,7 @@ export default function LoginPage() {
         setLoading(false);
       }
     } else if (data.user) {
-      await handleAuthenticatedUser(data.user);
+      await redirectToRoleHome(data.user);
     }
   }
 
@@ -134,39 +109,11 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Portal selector tabs */}
-          <div style={{ display: "flex", gap: "4px", background: "var(--c-surface-2)", borderRadius: "var(--r-md)", padding: "3px", border: "1px solid var(--c-border-1)", marginBottom: "20px" }}>
-            {(["student", "institution"] as const).map(p => (
-              <button
-                type="button"
-                key={p}
-                onClick={() => { setPortal(p); setError(""); setNotInstitution(false); }}
-                style={{
-                  flex: 1, padding: "7px 12px", borderRadius: "var(--r-sm)", border: "none", cursor: "pointer",
-                  fontSize: "12.5px", fontWeight: 500, transition: "all var(--t-fast)",
-                  background: portal === p ? "var(--c-surface-3)" : "transparent",
-                  color: portal === p ? "var(--c-text-primary)" : "var(--c-text-secondary)"
-                }}
-              >
-                {p.charAt(0).toUpperCase() + p.slice(1)} Portal
-              </button>
-            ))}
-          </div>
-
           {/* Form */}
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {error && (
               <div className="alert alert-error" style={{ padding: "8px 12px", fontSize: "12px" }}>
                 <span>{error}</span>
-              </div>
-            )}
-
-            {notInstitution && (
-              <div className="alert alert-error" style={{ padding: "10px 12px", fontSize: "12px", lineHeight: 1.5 }}>
-                No institution account found for this email. If you're setting up a new institution, you can{" "}
-                <Link href="/signup" style={{ color: "inherit", textDecoration: "underline", fontWeight: 600 }}>
-                  sign up here
-                </Link>. If you're a teacher, ask your admin to invite you first.
               </div>
             )}
 
@@ -178,7 +125,7 @@ export default function LoginPage() {
                   id="login-email"
                   type="email"
                   className="input"
-                  placeholder={portal === "institution" ? "you@school.edu" : "you@example.com"}
+                  placeholder="you@example.com"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
@@ -248,41 +195,25 @@ export default function LoginPage() {
               marginBottom: "16px"
             }}>
               <p style={{ fontSize: "15px", fontWeight: 400, lineHeight: 1.6, color: "var(--c-text-primary)", marginBottom: "20px", fontStyle: "italic" }}>
-                {portal === "institution"
-                  ? "“Generating a conflict-free timetable used to take our admin team a full weekend. Now it's minutes.”"
-                  : "“I used to rewrite my schedule every Sunday. Now Chronova does it — and honestly does it better.”"}
+                "I used to rewrite my schedule every Sunday. Now Chronova does it — and honestly does it better."
               </p>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "var(--c-surface-2)", border: "1px solid var(--c-border-1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 600, color: "var(--c-text-primary)" }}>
-                  {portal === "institution" ? "RS" : "AM"}
-                </div>
+                <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "var(--c-surface-2)", border: "1px solid var(--c-border-1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 600, color: "var(--c-text-primary)" }}>AM</div>
                 <div>
-                  <p style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--c-text-primary)" }}>
-                    {portal === "institution" ? "Ritu Sharma" : "Arjun Mehta"}
-                  </p>
-                  <p style={{ fontSize: "11px", color: "var(--c-text-tertiary)", fontWeight: 500 }}>
-                    {portal === "institution" ? "Vice Principal, Delhi Public School" : "JEE Aspirant · Delhi"}
-                  </p>
+                  <p style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--c-text-primary)" }}>Arjun Mehta</p>
+                  <p style={{ fontSize: "11px", color: "var(--c-text-tertiary)", fontWeight: 500 }}>JEE Aspirant · Delhi</p>
                 </div>
               </div>
             </div>
 
             {/* Mini stats */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              {(portal === "institution"
-                ? [
-                    { value: "2,100+", label: "Schools trust us" },
-                    { value: "Minutes", label: "To generate a timetable" },
-                    { value: "0", label: "Scheduling conflicts" },
-                    { value: "24/7", label: "In-app requests & notices" },
-                  ]
-                : [
-                    { value: "50K+", label: "Active students" },
-                    { value: "94%", label: "Report better grades" },
-                    { value: "4.9★", label: "Average rating" },
-                    { value: "2,100+", label: "Schools trust us" },
-                  ]
-              ).map(({ value, label }) => (
+              {[
+                { value: "50K+", label: "Active students" },
+                { value: "94%", label: "Report better grades" },
+                { value: "4.9★", label: "Average rating" },
+                { value: "2,100+", label: "Schools trust us" },
+              ].map(({ value, label }) => (
                 <div key={label} className="card" style={{ padding: "12px 16px" }}>
                   <p style={{ fontFamily: "var(--font-display)", fontSize: "18px", fontWeight: 650, color: "var(--c-text-primary)", letterSpacing: "-0.015em", marginBottom: "2px" }}>{value}</p>
                   <p style={{ fontSize: "11px", color: "var(--c-text-tertiary)", fontWeight: 500 }}>{label}</p>
