@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useUIStore } from "@/lib/store/uiStore";
 import { useScheduleStore, OSNotification } from "@/lib/store/scheduleStore";
+import { useInstitutionStore, InstitutionNotificationRecord } from "@/lib/store/institutionStore";
 import { createClient } from "@/lib/supabase/client";
 
 const PAGE_TITLES: Record<string, { title: string; sub: string }> = {
@@ -45,11 +46,19 @@ export default function Navbar() {
   const router = useRouter();
   const meta = getPageMeta(pathname);
   const supabase = createClient();
-  
+
+  // Which notification source the bell reads from is decided purely by
+  // which portal you're currently in (by URL), never mixed. The (app)
+  // layout's route guards already ensure only the right role can even be
+  // on /admin or /teacher, so pathname is a reliable signal here.
+  const isAdminArea = pathname.startsWith("/admin");
+  const isTeacherArea = pathname.startsWith("/teacher");
+  const isInstitutionPortal = isAdminArea || isTeacherArea;
+
   const toggleSidebar = useUIStore(state => state.toggleSidebar);
-  const { 
-    events, 
-    exams, 
+  const {
+    events,
+    exams,
     revisions,
     notifications,
     userName,
@@ -58,6 +67,24 @@ export default function Navbar() {
     deleteNotification,
     clearAllNotifications
   } = useScheduleStore();
+
+  const {
+    notifications: institutionNotifications,
+    loadAdminData,
+    loadTeacherData,
+    markNotificationRead: markInstitutionNotificationRead
+  } = useInstitutionStore();
+
+  useEffect(() => {
+    if (isAdminArea) loadAdminData();
+    else if (isTeacherArea) loadTeacherData();
+  }, [isAdminArea, isTeacherArea, loadAdminData, loadTeacherData]);
+
+  // "You" is the sender-name the store assigns when a notification was sent
+  // by the current viewer — those were never "received", so they're
+  // excluded here the same way every institution notifications page does.
+  const institutionInbox = institutionNotifications.filter(n => n.fromName !== "You");
+  const institutionUnreadCount = institutionInbox.filter(n => !n.read).length;
 
   const [showSearch, setShowSearch] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -218,13 +245,33 @@ export default function Navbar() {
   };
 
   const grouped = groupNotifications(notifications);
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = isInstitutionPortal
+    ? institutionUnreadCount
+    : notifications.filter(n => !n.read).length;
 
   const markAllAsRead = async () => {
     for (const n of notifications) {
       if (!n.read) await markNotificationRead(n.id);
     }
   };
+
+  const markAllInstitutionAsRead = async () => {
+    for (const n of institutionInbox) {
+      if (!n.read) await markInstitutionNotificationRead(n.id);
+    }
+  };
+
+  function institutionTimeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString();
+  }
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -306,8 +353,53 @@ export default function Navbar() {
               )}
             </button>
 
-            {showNotifications && (
-              <div 
+            {showNotifications && isInstitutionPortal && (
+              <div
+                ref={notificationsRef}
+                style={{
+                  position: "absolute", right: 0, top: "38px",
+                  width: "340px", background: "var(--c-surface-1)",
+                  border: "1px solid var(--c-border-1)", borderRadius: "var(--r-lg)",
+                  boxShadow: "var(--sh-lg)",
+                  padding: "12px", zIndex: 100, display: "flex", flexDirection: "column", gap: "10px"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--c-border-1)", paddingBottom: "8px" }}>
+                  <h4 style={{ fontSize: "12px", fontWeight: 600, fontFamily: "var(--font-display)" }}>Notifications ({institutionUnreadCount} unread)</h4>
+                  {institutionUnreadCount > 0 && (
+                    <button
+                      onClick={markAllInstitutionAsRead}
+                      style={{ background: "none", border: "none", color: "var(--c-accent-dark)", fontSize: "10.5px", cursor: "pointer", fontWeight: 500 }}
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "280px", overflowY: "auto", paddingRight: "2px" }}>
+                  {institutionInbox.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "16px 0", color: "var(--c-text-tertiary)" }}>
+                      <p style={{ fontSize: "12px", fontWeight: 500 }}>No notifications</p>
+                      <p style={{ fontSize: "10.5px", marginTop: "2px" }}>
+                        {isAdminArea ? "Requests and updates from teachers will show up here." : "Updates from your admin will show up here."}
+                      </p>
+                    </div>
+                  ) : (
+                    institutionInbox.map(n => (
+                      <InstitutionNotificationItem
+                        key={n.id}
+                        n={n}
+                        onRead={() => markInstitutionNotificationRead(n.id)}
+                        timeAgo={institutionTimeAgo}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {showNotifications && !isInstitutionPortal && (
+              <div
                 ref={notificationsRef}
                 style={{
                   position: "absolute", right: 0, top: "38px",
@@ -321,7 +413,7 @@ export default function Navbar() {
                   <h4 style={{ fontSize: "12px", fontWeight: 600, fontFamily: "var(--font-display)" }}>Coaching Alerts ({unreadCount} unread)</h4>
                   <div style={{ display: "flex", gap: "8px" }}>
                     {unreadCount > 0 && (
-                      <button 
+                      <button
                         onClick={markAllAsRead}
                         style={{ background: "none", border: "none", color: "var(--c-accent-light)", fontSize: "10.5px", cursor: "pointer", fontWeight: 500 }}
                       >
@@ -329,7 +421,7 @@ export default function Navbar() {
                       </button>
                     )}
                     {notifications.length > 0 && (
-                      <button 
+                      <button
                         onClick={clearAllNotifications}
                         style={{ background: "none", border: "none", color: "var(--c-text-tertiary)", fontSize: "10.5px", cursor: "pointer", fontWeight: 500 }}
                       >
@@ -781,6 +873,41 @@ function NotificationItem({ n, onRead, onDelete, onAction }: NotificationItemPro
           {n.actionText}
         </button>
       )}
+    </div>
+  );
+}
+
+interface InstitutionNotificationItemProps {
+  n: InstitutionNotificationRecord;
+  onRead: () => void;
+  timeAgo: (dateStr: string) => string;
+}
+
+function InstitutionNotificationItem({ n, onRead, timeAgo }: InstitutionNotificationItemProps) {
+  return (
+    <div
+      onClick={() => !n.read && onRead()}
+      style={{
+        padding: "10px 12px",
+        background: n.read ? "transparent" : "var(--c-accent-dim)",
+        border: `1px solid ${n.read ? "var(--c-border-1)" : "var(--c-accent-border)"}`,
+        borderRadius: "8px",
+        cursor: n.read ? "default" : "pointer",
+        display: "flex",
+        flexDirection: "column",
+        gap: "3px"
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <p style={{ fontSize: "12px", fontWeight: 650, color: "var(--c-text-primary)", flex: 1 }}>{n.title}</p>
+        {!n.read && <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: "var(--c-accent)", flexShrink: 0 }} />}
+      </div>
+      {n.message && (
+        <p style={{ fontSize: "11px", color: "var(--c-text-secondary)", lineHeight: 1.4 }}>{n.message}</p>
+      )}
+      <span style={{ fontSize: "9.5px", color: "var(--c-text-tertiary)", marginTop: "2px" }}>
+        From {n.fromName} · {timeAgo(n.createdAt)}
+      </span>
     </div>
   );
 }

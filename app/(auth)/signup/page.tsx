@@ -72,7 +72,11 @@ export default function SignupPage() {
         return;
       }
 
-      router.push(role === "institution" ? "/institution/login" : "/onboarding");
+      // Already authenticated at this point (signInWithPassword just above),
+      // so send an institution signup straight to /admin — it resolves their
+      // role itself (falling back to the signup-time metadata flag) and
+      // auto-provisions their institution on that first load.
+      router.push(role === "institution" ? "/admin" : "/onboarding");
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
       setLoading(false);
