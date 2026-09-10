@@ -5,30 +5,27 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
-  Mail, Lock, User, Eye, EyeOff, ArrowRight,
-  Calendar, MessageCircle, ShieldCheck, BarChart2,
-  CheckCircle2, Sparkles,
+  Mail, Lock, User, Eye, EyeOff, ArrowRight, Building2,
+  Users, BarChart3, ShieldCheck, CalendarCheck, CheckCircle2,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
 const FEATURES = [
-  { icon: Calendar, color: "#3B82F6", title: "A personalised weekly schedule", sub: "Built around your subjects, sleep, and college hours" },
-  { icon: MessageCircle, color: "#8B5CF6", title: "AI chat that understands context", sub: "Say \"I'm tired\" — it adapts. Say \"exam in 3 days\" — it focuses." },
-  { icon: ShieldCheck, color: "#10B981", title: "Burnout protection built in", sub: "Recovery windows are non-negotiable. Sleep is respected." },
-  { icon: BarChart2, color: "#F97316", title: "Analytics that surface patterns", sub: "See your study hours, consistency, and goal progress weekly." },
+  { icon: CalendarCheck, title: "One-click AI timetable generation", sub: "Feed in teachers, subjects, and rooms — get a conflict-free weekly timetable in seconds." },
+  { icon: ShieldCheck, title: "Automatic conflict detection", sub: "Teacher clashes, room overlaps, and workload imbalances flagged before they happen." },
+  { icon: Users, title: "Teacher & classroom management", sub: "Invite teachers, assign classrooms and batches, and manage availability from one place." },
+  { icon: BarChart3, title: "Institution-wide analytics", sub: "See attendance, workload distribution, and request trends across every batch." },
 ];
 
-const PREVIEW_SESSIONS = [
-  { title: "Mathematics Focus", time: "7:00 – 8:30 AM", color: "#3B82F6", done: true },
-  { title: "College Classes", time: "9:00 AM – 3:00 PM", color: "#1D4ED8", done: false },
-  { title: "Physics Practice", time: "6:00 – 7:30 PM", color: "#7C3AED", done: false },
-];
-
-export default function SignupPage() {
+// This is a distinct portal from student signup — one email can only ever
+// belong to one portal (see /api/auth/signup), so this page exists
+// separately rather than as a tab on /signup.
+export default function InstitutionSignupPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [name, setName] = useState("");
+  const [institutionName, setInstitutionName] = useState("");
+  const [adminName, setAdminName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -54,11 +51,17 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({
+          email,
+          password,
+          name: adminName,
+          role: "institution",
+          institutionName,
+        }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        setError(data.error || "Failed to create account");
+        setError(data.error || "Failed to create institution account");
         setErrorCode(data.code);
         setLoading(false);
         return;
@@ -71,10 +74,10 @@ export default function SignupPage() {
         return;
       }
 
-      // Everyone who self-signs up is a student — institution admins and
-      // teachers are provisioned by an existing admin (via /admin/teachers),
-      // never through this public form.
-      router.push("/onboarding");
+      // /login resolves role via resolveUserRole() and sends admins to
+      // /admin — there's no separate institution login page (see AGENTS
+      // notes on lib/auth/resolveRole.ts), so this is the right redirect.
+      router.push("/admin");
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
       setLoading(false);
@@ -97,17 +100,20 @@ export default function SignupPage() {
         }} className="responsive-auth-left">
 
           {/* Logo */}
-          <Link href="/" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", marginBottom: "40px" }}>
+          <Link href="/" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", marginBottom: "32px" }}>
             <Logo size={24} />
           </Link>
 
           {/* Heading */}
           <div style={{ marginBottom: "24px" }}>
+            <span className="badge badge-secondary" style={{ padding: "4px 10px", fontSize: "10.5px", border: "1px solid var(--c-secondary-border)", marginBottom: "12px", display: "inline-flex" }}>
+              <Building2 size={11} style={{ marginRight: "3px" }} /> Institution Portal
+            </span>
             <h1 className="font-display" style={{ fontSize: "27px", fontWeight: 600, letterSpacing: "-0.02em", color: "var(--c-text-primary)" }}>
-              Create your account
+              Set up your institution
             </h1>
             <p style={{ fontSize: "13.5px", color: "var(--c-text-secondary)", marginTop: "6px", lineHeight: 1.5 }}>
-              Free to start, no credit card required — you'll have a real schedule in about three minutes.
+              Bring AI-powered timetabling and teacher management to your school or coaching center.
             </p>
           </div>
 
@@ -129,28 +135,37 @@ export default function SignupPage() {
             )}
 
             <div>
-              <label className="form-label" htmlFor="signup-name">Full name</label>
+              <label className="form-label" htmlFor="inst-signup-name">Institution name</label>
               <div className="input-group">
-                <User size={14} className="input-icon" />
-                <input id="signup-name" type="text" className="input" placeholder="Arjun Mehta"
-                  value={name} onChange={e => setName(e.target.value)} required autoComplete="name" />
+                <Building2 size={14} className="input-icon" />
+                <input id="inst-signup-name" type="text" className="input" placeholder="e.g. Rungta College of Science"
+                  value={institutionName} onChange={e => setInstitutionName(e.target.value)} required autoComplete="organization" />
               </div>
             </div>
 
             <div>
-              <label className="form-label" htmlFor="signup-email">Email</label>
+              <label className="form-label" htmlFor="inst-signup-admin-name">Admin name</label>
+              <div className="input-group">
+                <User size={14} className="input-icon" />
+                <input id="inst-signup-admin-name" type="text" className="input" placeholder="Dr. Kavita Rao"
+                  value={adminName} onChange={e => setAdminName(e.target.value)} required autoComplete="name" />
+              </div>
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="inst-signup-email">Email</label>
               <div className="input-group">
                 <Mail size={14} className="input-icon" />
-                <input id="signup-email" type="email" className="input" placeholder="you@example.com"
+                <input id="inst-signup-email" type="email" className="input" placeholder="admin@yourinstitution.edu"
                   value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
               </div>
             </div>
 
             <div>
-              <label className="form-label" htmlFor="signup-password">Password</label>
+              <label className="form-label" htmlFor="inst-signup-password">Password</label>
               <div className="input-group">
                 <Lock size={14} className="input-icon" />
-                <input id="signup-password" type={showPw ? "text" : "password"} className="input"
+                <input id="inst-signup-password" type={showPw ? "text" : "password"} className="input"
                   placeholder="At least 8 characters"
                   value={password} onChange={e => setPassword(e.target.value)}
                   required minLength={8} autoComplete="new-password"
@@ -163,13 +178,13 @@ export default function SignupPage() {
             </div>
 
             <button
-              id="signup-submit-btn"
+              id="institution-signup-submit-btn"
               type="submit"
-              disabled={loading || !email || !password || !name}
+              disabled={loading || !email || !password || !adminName || !institutionName}
               className="btn btn-primary"
-              style={{ width: "100%", padding: "11px", marginTop: "6px", justifyContent: "center", fontSize: "13.5px", fontWeight: 600 }}
+              style={{ width: "100%", padding: "11px", marginTop: "6px", justifyContent: "center", fontSize: "13.5px", fontWeight: 600, background: "var(--c-secondary)", borderColor: "var(--c-secondary)" }}
             >
-              {loading ? "Creating..." : <>Create account <ArrowRight size={13} style={{ marginLeft: "2px" }} /></>}
+              {loading ? "Setting up..." : <>Create institution account <ArrowRight size={13} style={{ marginLeft: "2px" }} /></>}
             </button>
           </form>
 
@@ -185,10 +200,10 @@ export default function SignupPage() {
               Sign in
             </Link>
           </p>
-          <p style={{ marginTop: "6px", fontSize: "11.5px", color: "var(--c-text-tertiary)", textAlign: "center" }}>
-            Are you an institution?{" "}
-            <Link href="/institution/signup" style={{ color: "var(--c-text-secondary)", textDecoration: "none", fontWeight: 600 }}>
-              Register here →
+          <p style={{ marginTop: "6px", fontSize: "12.5px", color: "var(--c-text-tertiary)", textAlign: "center" }}>
+            Not an institution?{" "}
+            <Link href="/signup" style={{ color: "var(--c-text-primary)", textDecoration: "none", fontWeight: 500 }}>
+              Sign up as a student
             </Link>
           </p>
         </div>
@@ -202,10 +217,10 @@ export default function SignupPage() {
           <div style={{ position: "relative", zIndex: 1, maxWidth: "440px", width: "100%" }}>
 
             <p className="eyebrow" style={{ marginBottom: "14px", justifyContent: "center", display: "flex" }}>
-              A look at your new dashboard
+              Built for schools, colleges & coaching centers
             </p>
 
-            {/* App preview mockup */}
+            {/* Admin dashboard preview mockup */}
             <div className="card" style={{ padding: "18px", boxShadow: "var(--sh-lg)", marginBottom: "28px" }}>
               {/* Chrome header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "12px", borderBottom: "1px solid var(--c-border-0)", marginBottom: "14px" }}>
@@ -215,16 +230,20 @@ export default function SignupPage() {
                   <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e" }} />
                 </div>
                 <div style={{ background: "var(--c-surface-2)", padding: "3px 20px", borderRadius: "6px", fontSize: "10px", color: "var(--c-text-tertiary)", border: "1px solid var(--c-border-0)" }}>
-                  app.chronova.ai/dashboard
+                  app.chronova.ai/admin
                 </div>
                 <div style={{ width: "24px" }} />
               </div>
 
-              <p style={{ fontSize: "13px", fontWeight: 700, color: "var(--c-text-primary)" }}>Good evening, Arjun 👋</p>
-              <p style={{ fontSize: "11px", color: "var(--c-text-secondary)", marginBottom: "12px" }}>Here's today's focus</p>
+              <p style={{ fontSize: "13px", fontWeight: 700, color: "var(--c-text-primary)" }}>Rungta College of Science</p>
+              <p style={{ fontSize: "11px", color: "var(--c-text-secondary)", marginBottom: "12px" }}>18 batches · 42 teachers · timetable synced</p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {PREVIEW_SESSIONS.map((s) => (
+                {[
+                  { title: "Grade 12 — Physics", time: "Mon–Fri · 9:00–10:00 AM", color: "#3B82F6" },
+                  { title: "Grade 11 — Chemistry Lab", time: "Tue & Thu · 1:00–3:00 PM", color: "#7C3AED" },
+                  { title: "Faculty Meeting", time: "Fri · 4:00 PM", color: "#F97316" },
+                ].map((s) => (
                   <div key={s.title} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                     padding: "8px 10px", borderRadius: "8px", background: "var(--c-surface-0)",
@@ -234,30 +253,22 @@ export default function SignupPage() {
                       <p style={{ fontSize: "12px", fontWeight: 600, color: "var(--c-text-primary)" }}>{s.title}</p>
                       <p style={{ fontSize: "10px", color: "var(--c-text-tertiary)" }}>{s.time}</p>
                     </div>
-                    {s.done && <CheckCircle2 size={15} color="#15803D" />}
                   </div>
                 ))}
               </div>
 
-              {/* Mini AI chat snippet */}
-              <div style={{ marginTop: "14px", paddingTop: "14px", borderTop: "1px solid var(--c-border-0)", display: "flex", flexDirection: "column", gap: "6px" }}>
-                <div style={{ alignSelf: "flex-end", background: "var(--c-surface-2)", color: "var(--c-text-primary)", padding: "6px 10px", borderRadius: "10px 10px 2px 10px", fontSize: "11px", maxWidth: "80%" }}>
-                  I'm exhausted today 😩
+              {/* Conflict-free badge */}
+              <div style={{ marginTop: "14px", paddingTop: "14px", borderTop: "1px solid var(--c-border-0)", display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: "var(--c-success-dim)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <CheckCircle2 size={12} color="var(--c-success)" />
                 </div>
-                <div style={{ alignSelf: "flex-start", display: "flex", gap: "6px", alignItems: "flex-start", maxWidth: "88%" }}>
-                  <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: "var(--c-accent-dim)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "1px" }}>
-                    <Sparkles size={10} color="var(--c-accent-dark)" />
-                  </div>
-                  <div style={{ background: "var(--c-accent-dim)", border: "1px solid var(--c-accent-border)", color: "var(--c-text-primary)", padding: "6px 10px", borderRadius: "10px 10px 10px 2px", fontSize: "11px" }}>
-                    Got it — lightened tonight's load and moved Physics to tomorrow morning. Rest well 🌙
-                  </div>
-                </div>
+                <span style={{ fontSize: "11.5px", color: "var(--c-text-secondary)" }}>0 conflicts detected across the week</span>
               </div>
             </div>
 
             {/* Feature list */}
             <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginBottom: "20px" }}>
-              {FEATURES.map(({ icon: Icon, color, title, sub }) => (
+              {FEATURES.map(({ icon: Icon, title, sub }) => (
                 <div key={title} style={{
                   display: "flex", gap: "12px", alignItems: "flex-start",
                   padding: "10px 12px", borderRadius: "var(--r-md)",
@@ -272,8 +283,8 @@ export default function SignupPage() {
                     (e.currentTarget as HTMLElement).style.borderColor = "transparent";
                   }}
                 >
-                  <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: `${color}18`, border: `1px solid ${color}33`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Icon size={14} color={color} />
+                  <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: "var(--c-secondary-dim)", border: "1px solid var(--c-secondary-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon size={14} color="var(--c-secondary)" />
                   </div>
                   <div>
                     <p style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--c-text-primary)" }}>{title}</p>
@@ -287,7 +298,7 @@ export default function SignupPage() {
             <div className="card" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px" }}>
               <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--c-success)", flexShrink: 0 }} />
               <p style={{ fontSize: "12px", color: "var(--c-text-secondary)" }}>
-                Trusted by <strong style={{ color: "var(--c-text-primary)" }}>50,000+ students</strong> and <strong style={{ color: "var(--c-text-primary)" }}>2,100 schools</strong>
+                Trusted by <strong style={{ color: "var(--c-text-primary)" }}>2,100+ institutions</strong> to build conflict-free timetables
               </p>
             </div>
           </div>

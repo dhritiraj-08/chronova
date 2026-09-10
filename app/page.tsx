@@ -20,7 +20,6 @@ const NAV_LINKS = [
   { label: "Features", href: "#features" },
   { label: "Interactive Demo", href: "#demo" },
   { label: "How it works", href: "#how" },
-  { label: "For Institutions", href: "#institutions" },
   { label: "Testimonials", href: "#testimonials" },
 ];
 
@@ -93,6 +92,7 @@ export default function LandingPage() {
               {NAV_LINKS.map(l => (
                 <a key={l.label} href={l.href} className="btn btn-ghost" style={{ fontSize: "12.5px", fontWeight: 500, padding: "6px 10px" }}>{l.label}</a>
               ))}
+              <Link href="/institution/signup" className="btn btn-ghost" style={{ fontSize: "12.5px", fontWeight: 500, padding: "6px 10px" }}>For Institutions</Link>
             </nav>
 
             {/* Actions */}
@@ -254,7 +254,7 @@ export default function LandingPage() {
                     </div>
                   ))}
                 </div>
-                <Link href="/signup">
+                <Link href="/institution/signup">
                   <button className="btn btn-primary" style={{ padding: "10px 20px" }}>
                     Try for your institution <ArrowRight size={14} style={{ marginLeft: "2px" }} />
                   </button>
@@ -389,6 +389,9 @@ export default function LandingPage() {
                       {l.label}
                     </a>
                   ))}
+                  <Link href="/institution/signup" style={{ fontSize: "13px", color: "var(--c-text-secondary)", textDecoration: "none" }}>
+                    For Institutions
+                  </Link>
                 </div>
               </div>
 

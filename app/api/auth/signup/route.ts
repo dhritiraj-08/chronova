@@ -24,11 +24,17 @@ async function describeExistingAccount(supabaseAdmin: ReturnType<typeof createAd
 
 export async function POST(request: Request) {
   try {
-    const { email, password, name, role } = await request.json();
+    const { email, password, name, role, institutionName } = await request.json();
 
     if (!email || !password || !name) {
       return NextResponse.json(
         { error: "Email, password, and name are required." },
+        { status: 400 }
+      );
+    }
+    if (role === "institution" && !institutionName) {
+      return NextResponse.json(
+        { error: "Institution name is required." },
         { status: 400 }
       );
     }
@@ -65,6 +71,34 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    // For an institution signup, create the institution + its admin
+    // membership row right away with the name the admin actually typed.
+    // Without this, the account still works — institutionStore's
+    // loadAdminData() lazily provisions a "My Institution" placeholder the
+    // first time they open /admin — but eagerly creating it here means the
+    // real institution name is set from the start instead of a placeholder.
+    if (role === "institution" && data.user) {
+      const { data: created, error: instError } = await supabaseAdmin
+        .from("institutions")
+        .insert({ name: institutionName, type: "school", admin_id: data.user.id })
+        .select("id")
+        .single();
+
+      if (instError || !created) {
+        console.error("Failed to create institution row during signup:", instError);
+        // Don't fail the whole signup — the account exists and works;
+        // loadAdminData()'s lazy-provisioning fallback will still run the
+        // first time this admin opens /admin, just with a placeholder name.
+      } else {
+        const { error: memberError } = await supabaseAdmin
+          .from("institution_members")
+          .insert({ institution_id: created.id, user_id: data.user.id, role: "admin" });
+        if (memberError) {
+          console.error("Failed to create institution_members row during signup:", memberError);
+        }
+      }
     }
 
     return NextResponse.json({ success: true, user: data.user });
