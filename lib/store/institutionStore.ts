@@ -134,9 +134,11 @@ interface InstitutionState {
   removeTeacher: (id: string) => Promise<void>;
 
   addClassroom: (input: Omit<ClassroomRecord, "id">) => Promise<void>;
+  updateClassroom: (id: string, updates: Partial<Omit<ClassroomRecord, "id">>) => Promise<void>;
   removeClassroom: (id: string) => Promise<void>;
 
   addBatch: (input: Omit<BatchRecord, "id">) => Promise<void>;
+  updateBatch: (id: string, updates: Partial<Omit<BatchRecord, "id">>) => Promise<void>;
   removeBatch: (id: string) => Promise<void>;
 
   addTimetableEntry: (input: {
@@ -544,6 +546,19 @@ export const useInstitutionStore = create<InstitutionState>((set, get) => {
       }
     },
 
+    updateClassroom: async (id, updates) => {
+      const dbUpdates: Record<string, any> = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.capacity !== undefined) dbUpdates.capacity = updates.capacity;
+      if (updates.type !== undefined) dbUpdates.type = updates.type;
+      if (Object.keys(dbUpdates).length === 0) return;
+
+      await supabase.from("classrooms").update(dbUpdates).eq("id", id);
+      set((state) => ({
+        classrooms: state.classrooms.map(c => c.id === id ? { ...c, ...updates } : c)
+      }));
+    },
+
     removeClassroom: async (id) => {
       await supabase.from("classrooms").delete().eq("id", id);
       set((state) => ({ classrooms: state.classrooms.filter(c => c.id !== id) }));
@@ -560,6 +575,19 @@ export const useInstitutionStore = create<InstitutionState>((set, get) => {
       if (data) {
         set((state) => ({ batches: [...state.batches, { id: data.id, name: data.name, studentCount: data.student_count ?? 0, ageGroup: data.age_group || "" }] }));
       }
+    },
+
+    updateBatch: async (id, updates) => {
+      const dbUpdates: Record<string, any> = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.studentCount !== undefined) dbUpdates.student_count = updates.studentCount;
+      if (updates.ageGroup !== undefined) dbUpdates.age_group = updates.ageGroup;
+      if (Object.keys(dbUpdates).length === 0) return;
+
+      await supabase.from("batches").update(dbUpdates).eq("id", id);
+      set((state) => ({
+        batches: state.batches.map(b => b.id === id ? { ...b, ...updates } : b)
+      }));
     },
 
     removeBatch: async (id) => {
